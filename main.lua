@@ -26,6 +26,12 @@ import "android.view.accessibility.AccessibilityNodeInfo"
 local ctx = service
 local File_CLASS = luajava.bindClass("java.io.File")
 
+-- UI thread helper
+local function runOnUiThread(callback)
+    local handler = Handler(Looper.getMainLooper())
+    handler.post(Runnable({ run = callback }))
+end
+
 -- ==================== AUTO UPDATE CONFIGURATION ====================
 local CURRENT_VERSION = "1.1"
 local VERSION_URL = "https://raw.githubusercontent.com/nch77500-pixel/CSR-AI-Vision-Assistant/main/version.txt"
@@ -39,11 +45,13 @@ function trim(s)
 end
 
 function showUpdateErrorDialog(title, message)
-    local errorDialog = LuaDialog(ctx)
-    errorDialog.setTitle(title)
-    errorDialog.setMessage(message)
-    errorDialog.setButton("OK", function() errorDialog.dismiss() end)
-    errorDialog.show()
+    runOnUiThread(function()
+        local errorDialog = LuaDialog(ctx)
+        errorDialog.setTitle(title)
+        errorDialog.setMessage(message)
+        errorDialog.setButton("OK", function() errorDialog.dismiss() end)
+        errorDialog.show()
+    end)
 end
 
 function checkUpdate()
@@ -59,17 +67,19 @@ function checkUpdate()
             if onlineVersion ~= CURRENT_VERSION then
                 Http.get(UPDATE_CODE_URL .. "?t=" .. timestamp, function(code2, mainCode)
                     if code2 == 200 and mainCode and trim(mainCode) ~= "" then
-                        local updateAlertDlg = LuaDialog(ctx)
-                        updateAlertDlg.setTitle("Update Available!")
-                        updateAlertDlg.setMessage("A new version (" .. onlineVersion .. ") is available.\nCurrent version: " .. CURRENT_VERSION .. "\n\nWould you like to update now?")
-                        updateAlertDlg.setButton("Update Now", function()
-                            updateAlertDlg.dismiss()
-                            performUpdate(mainCode, onlineVersion)
+                        runOnUiThread(function()
+                            local updateAlertDlg = LuaDialog(ctx)
+                            updateAlertDlg.setTitle("Update Available!")
+                            updateAlertDlg.setMessage("A new version (" .. onlineVersion .. ") is available.\nCurrent version: " .. CURRENT_VERSION .. "\n\nWould you like to update now?")
+                            updateAlertDlg.setButton("Update Now", function()
+                                updateAlertDlg.dismiss()
+                                performUpdate(mainCode, onlineVersion)
+                            end)
+                            updateAlertDlg.setButton2("Later", function()
+                                updateAlertDlg.dismiss()
+                            end)
+                            updateAlertDlg.show()
                         end)
-                        updateAlertDlg.setButton2("Later", function()
-                            updateAlertDlg.dismiss()
-                        end)
-                        updateAlertDlg.show()
                     end
                 end)
             end
@@ -123,23 +133,25 @@ function performUpdate(mainCode, onlineVersion)
         
         if success then
             updateInProgress = false
-            local successDialog = LuaDialog(ctx)
-            successDialog.setTitle("Update Successful")
-            successDialog.setMessage("Plugin successfully updated to version " .. onlineVersion .. ".\n\nPlugin will restart automatically.")
-            successDialog.setButton("OK", function()
-                successDialog.dismiss()
-                if mainDlg then mainDlg.dismiss() end
-                local handler = Handler(Looper.getMainLooper())
-                handler.postDelayed(Runnable({ run = function()
-                    local func, err = loadfile(PLUGIN_PATH)
-                    if func then
-                        pcall(func)
-                    else
-                        Toast.makeText(ctx, "Error reloading: " .. tostring(err), Toast.LENGTH_SHORT).show()
-                    end
-                end }), 2000)
+            runOnUiThread(function()
+                local successDialog = LuaDialog(ctx)
+                successDialog.setTitle("Update Successful")
+                successDialog.setMessage("Plugin successfully updated to version " .. onlineVersion .. ".\n\nPlugin will restart automatically.")
+                successDialog.setButton("OK", function()
+                    successDialog.dismiss()
+                    if mainDlg then mainDlg.dismiss() end
+                    local handler = Handler(Looper.getMainLooper())
+                    handler.postDelayed(Runnable({ run = function()
+                        local func, err = loadfile(PLUGIN_PATH)
+                        if func then
+                            pcall(func)
+                        else
+                            Toast.makeText(ctx, "Error reloading: " .. tostring(err), Toast.LENGTH_SHORT).show()
+                        end
+                    end }), 2000)
+                end)
+                successDialog.show()
             end)
-            successDialog.show()
             return
         else
             updateInProgress = false
@@ -201,8 +213,10 @@ local processButton = nil
 local progressDlg = nil
 
 function notify(msg)
-  if service and service.speak then service.speak(msg) end
-  Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+    runOnUiThread(function()
+        if service and service.speak then service.speak(msg) end
+        Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+    end)
 end
 
 function vibrate()
@@ -222,32 +236,36 @@ function saveSelectedRecognizeOption(opt) aiEditor.putString("rec_option", opt);
 
 -- ==================== PROGRESS DIALOG ====================
 function showProgress(message)
-    if progressDlg then
-        pcall(function() progressDlg.dismiss() end)
-        progressDlg = nil
-    end
-    progressDlg = LuaDialog(ctx)
-    progressDlg.setTitle("Processing")
-    local layout = LinearLayout(ctx)
-    layout.setOrientation(1)
-    layout.setPadding(40, 30, 40, 30)
-    local tv = TextView(ctx)
-    tv.setText(message)
-    tv.setGravity(Gravity.CENTER)
-    local pb = ProgressBar(ctx)
-    pb.setIndeterminate(true)
-    layout.addView(pb)
-    layout.addView(tv)
-    progressDlg.setView(layout)
-    progressDlg.setCancelable(false)
-    progressDlg.show()
+    runOnUiThread(function()
+        if progressDlg then
+            pcall(function() progressDlg.dismiss() end)
+            progressDlg = nil
+        end
+        progressDlg = LuaDialog(ctx)
+        progressDlg.setTitle("Processing")
+        local layout = LinearLayout(ctx)
+        layout.setOrientation(1)
+        layout.setPadding(40, 30, 40, 30)
+        local tv = TextView(ctx)
+        tv.setText(message)
+        tv.setGravity(Gravity.CENTER)
+        local pb = ProgressBar(ctx)
+        pb.setIndeterminate(true)
+        layout.addView(pb)
+        layout.addView(tv)
+        progressDlg.setView(layout)
+        progressDlg.setCancelable(false)
+        progressDlg.show()
+    end)
 end
 
 function hideProgress()
-    if progressDlg then
-        pcall(function() progressDlg.dismiss() end)
-        progressDlg = nil
-    end
+    runOnUiThread(function()
+        if progressDlg then
+            pcall(function() progressDlg.dismiss() end)
+            progressDlg = nil
+        end
+    end)
 end
 
 -- ==================== IMPROVED IMAGE TO BASE64 WITH RESIZE ====================
@@ -552,246 +570,251 @@ function scanAllImages()
             table.insert(photoFilePaths, file.path)
         end
         
-        local listLayout = LinearLayout(ctx)
-        listLayout.setOrientation(1)
-        local listView = ListView(ctx)
-        listView.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_list_item_1, adapterData))
-        listLayout.addView(listView)
-        
-        local listDlg = LuaDialog(ctx)
-        listDlg.setTitle("Select Image (Last 100)")
-        listDlg.setView(listLayout)
-        listDlg.show()
-        
-        listView.setOnItemClickListener(AdapterView.OnItemClickListener{
-            onItemClick = function(p, v, pos, id)
-                selectedPhotoPath = photoFilePaths[pos + 1]
-                if _G.statusLabel then
-                    _G.statusLabel.setText("Selected: " .. File_CLASS(selectedPhotoPath).getName())
+        runOnUiThread(function()
+            local listLayout = LinearLayout(ctx)
+            listLayout.setOrientation(1)
+            local listView = ListView(ctx)
+            listView.setAdapter(ArrayAdapter(ctx, android.R.layout.simple_list_item_1, adapterData))
+            listLayout.addView(listView)
+            
+            local listDlg = LuaDialog(ctx)
+            listDlg.setTitle("Select Image (Last 100)")
+            listDlg.setView(listLayout)
+            listDlg.show()
+            
+            listView.setOnItemClickListener(AdapterView.OnItemClickListener{
+                onItemClick = function(p, v, pos, id)
+                    selectedPhotoPath = photoFilePaths[pos + 1]
+                    if _G.statusLabel then
+                        _G.statusLabel.setText("Selected: " .. File_CLASS(selectedPhotoPath).getName())
+                    end
+                    notify("Selected: " .. File_CLASS(selectedPhotoPath).getName())
+                    listDlg.dismiss()
                 end
-                notify("Selected: " .. File_CLASS(selectedPhotoPath).getName())
-                listDlg.dismiss()
-            end
-        })
+            })
+        end)
     else
         notify("No images found.")
     end
 end
 
 function showAISettingsDialog()
-    local settingsLayout = LinearLayout(ctx)
-    settingsLayout.setOrientation(1)
-    settingsLayout.setPadding(40, 20, 40, 20)
-    
-    local apiLabel = TextView(ctx)
-    apiLabel.setText("Gemini API Key:")
-    settingsLayout.addView(apiLabel)
-    
-    local apiInput = EditText(ctx)
-    apiInput.setHint("Enter your API key")
-    apiInput.setText(getGeminiApiKey())
-    apiInput.setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
-    settingsLayout.addView(apiInput)
-    
-    local modelLabel = TextView(ctx)
-    modelLabel.setText("Select Model:")
-    modelLabel.setPadding(0, 20, 0, 0)
-    settingsLayout.addView(modelLabel)
-    
-    local modelSpinner = Spinner(ctx)
-    local modelAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, GEMINI_MODELS)
-    modelSpinner.setAdapter(modelAdapter)
-    local savedModel = getGeminiModel()
-    for i = 1, #GEMINI_MODELS do
-        if GEMINI_MODELS[i] == savedModel then
-            modelSpinner.setSelection(i - 1)
-            break
+    runOnUiThread(function()
+        local settingsLayout = LinearLayout(ctx)
+        settingsLayout.setOrientation(1)
+        settingsLayout.setPadding(40, 20, 40, 20)
+        
+        local apiLabel = TextView(ctx)
+        apiLabel.setText("Gemini API Key:")
+        settingsLayout.addView(apiLabel)
+        
+        local apiInput = EditText(ctx)
+        apiInput.setHint("Enter your API key")
+        apiInput.setText(getGeminiApiKey())
+        apiInput.setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        settingsLayout.addView(apiInput)
+        
+        local modelLabel = TextView(ctx)
+        modelLabel.setText("Select Model:")
+        modelLabel.setPadding(0, 20, 0, 0)
+        settingsLayout.addView(modelLabel)
+        
+        local modelSpinner = Spinner(ctx)
+        local modelAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, GEMINI_MODELS)
+        modelSpinner.setAdapter(modelAdapter)
+        local savedModel = getGeminiModel()
+        for i = 1, #GEMINI_MODELS do
+            if GEMINI_MODELS[i] == savedModel then
+                modelSpinner.setSelection(i - 1)
+                break
+            end
         end
-    end
-    settingsLayout.addView(modelSpinner)
-    
-    local infoText = TextView(ctx)
-    infoText.setText("Get API key from: makersuite.google.com/app/apikey")
-    infoText.setTextSize(11)
-    infoText.setTextColor(0xFF888888)
-    infoText.setPadding(0, 20, 0, 0)
-    settingsLayout.addView(infoText)
-    
-    local settingsDlg = LuaDialog(ctx)
-    settingsDlg.setTitle("AI Engine Settings")
-    settingsDlg.setView(settingsLayout)
-    settingsDlg.setPositiveButton("Save", function()
-        local newKey = apiInput.getText().toString()
-        if newKey ~= "" then saveGeminiApiKey(newKey) end
-        saveGeminiModel(GEMINI_MODELS[modelSpinner.getSelectedItemPosition() + 1])
-        notify("Settings saved")
-        settingsDlg.dismiss()
+        settingsLayout.addView(modelSpinner)
+        
+        local infoText = TextView(ctx)
+        infoText.setText("Get API key from: makersuite.google.com/app/apikey")
+        infoText.setTextSize(11)
+        infoText.setTextColor(0xFF888888)
+        infoText.setPadding(0, 20, 0, 0)
+        settingsLayout.addView(infoText)
+        
+        local settingsDlg = LuaDialog(ctx)
+        settingsDlg.setTitle("AI Engine Settings")
+        settingsDlg.setView(settingsLayout)
+        settingsDlg.setPositiveButton("Save", function()
+            local newKey = apiInput.getText().toString()
+            if newKey ~= "" then saveGeminiApiKey(newKey) end
+            saveGeminiModel(GEMINI_MODELS[modelSpinner.getSelectedItemPosition() + 1])
+            notify("Settings saved")
+            settingsDlg.dismiss()
+        end)
+        settingsDlg.setNegativeButton("Cancel", nil)
+        settingsDlg.show()
     end)
-    settingsDlg.setNegativeButton("Cancel", nil)
-    settingsDlg.show()
 end
 
 function aboutAndSupport()
     vibrate()
-    
-    local dialog = LuaDialog(ctx)
-    dialog.setTitle("CSR AI Vision Assistant")
-    
-    local scrollView = ScrollView(ctx)
-    local mainLayout = LinearLayout(ctx)
-    mainLayout.setOrientation(1)
-    mainLayout.setPadding(dp(16), dp(16), dp(16), dp(16))
-    
-    local titleView = TextView(ctx)
-    titleView.setText("CSR AI Vision Assistant")
-    titleView.setTextSize(20)
-    titleView.setTextColor(0xFF2196F3)
-    titleView.setGravity(Gravity.CENTER)
-    titleView.setTypeface(Typeface.DEFAULT_BOLD)
-    mainLayout.addView(titleView)
-    
-    addSpacer(mainLayout, dp(10))
-    
-    local devView = TextView(ctx)
-    devView.setText("Developed by: CSR Official")
-    devView.setTextSize(15)
-    devView.setTextColor(0xFF000000)
-    mainLayout.addView(devView)
-    
-    addSpacer(mainLayout, dp(5))
-    
-    local createdView = TextView(ctx)
-    createdView.setText("Created by: Ch AbdulRafay")
-    createdView.setTextSize(15)
-    createdView.setTextColor(0xFF000000)
-    mainLayout.addView(createdView)
-    
-    addSpacer(mainLayout, dp(20))
-    
-    local descHeading = TextView(ctx)
-    descHeading.setText("Description")
-    descHeading.setTextSize(18)
-    descHeading.setTextColor(0xFF000000)
-    descHeading.setTypeface(Typeface.DEFAULT_BOLD)
-    mainLayout.addView(descHeading)
-    
-    addSpacer(mainLayout, dp(8))
-    
-    local descText = TextView(ctx)
-    descText.setText(
-        "CSR AI Vision Assistant is a powerful Android accessibility tool that leverages Google Gemini AI to help visually impaired users understand their surroundings.\n\n" ..
-        "Features:\n" ..
-        "- Analyze images from gallery with detailed descriptions\n" ..
-        "- Extract text from images accurately\n" ..
-        "- Read current screen content and UI elements\n" ..
-        "- Identify focused items (buttons, icons, text fields)\n" ..
-        "- Support for 17+ languages including Urdu, Hindi, Arabic\n" ..
-        "- Multiple Gemini models (1.5 Pro, 2.0 Flash, 2.5 Pro etc.)\n" ..
-        "- TalkBack integration for voice feedback\n\n" ..
-        "How to use:\n" ..
-        "1. Enable Accessibility Service for this app\n" ..
-        "2. Enter your Gemini API key in Settings\n" ..
-        "3. Choose recognition mode (Image/Screen/Item)\n" ..
-        "4. Select image or focus on any UI element\n" ..
-        "5. Press Process and get AI-powered results\n\n" ..
-        "Tips:\n" ..
-        "- For best results, use clear images\n" ..
-        "- Current Item mode works with screen reader focus\n" ..
-        "- Extract Text Only gives raw OCR-like output\n\n" ..
-        "This assistant is completely free and open for all. No data is stored or shared with any third party besides Google Gemini API."
-    )
-    descText.setTextSize(13)
-    descText.setTextColor(0xFF333333)
-    descText.setPadding(0, 0, 0, dp(10))
-    mainLayout.addView(descText)
-    
-    addSpacer(mainLayout, dp(10))
-    
-    local contactHeading = TextView(ctx)
-    contactHeading.setText("Contact Us")
-    contactHeading.setTextSize(18)
-    contactHeading.setTextColor(0xFF000000)
-    contactHeading.setTypeface(Typeface.DEFAULT_BOLD)
-    mainLayout.addView(contactHeading)
-    
-    addSpacer(mainLayout, dp(10))
-    
-    local btnChannel = Button(ctx)
-    btnChannel.setText("WhatsApp Channel")
-    btnChannel.setBackgroundColor(0xFF25D366)
-    btnChannel.setTextColor(0xFFFFFFFF)
-    btnChannel.setOnClickListener({
-        onClick = function()
-            dialog.dismiss()
-            if mainDlg then mainDlg.dismiss() end
-            local url = "https://whatsapp.com/channel/0029VbCJfWSAojYuaMuB9E1t"
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        end
-    })
-    mainLayout.addView(btnChannel)
-    addSpacer(mainLayout, dp(5))
-    
-    local btnCommunity = Button(ctx)
-    btnCommunity.setText("WhatsApp Community")
-    btnCommunity.setBackgroundColor(0xFF128C7E)
-    btnCommunity.setTextColor(0xFFFFFFFF)
-    btnCommunity.setOnClickListener({
-        onClick = function()
-            dialog.dismiss()
-            if mainDlg then mainDlg.dismiss() end
-            local url = "https://chat.whatsapp.com/C5jA2u0gGDO9rkgcCY2ybg"
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        end
-    })
-    mainLayout.addView(btnCommunity)
-    addSpacer(mainLayout, dp(5))
-    
-    local btnYoutube = Button(ctx)
-    btnYoutube.setText("YouTube Channel")
-    btnYoutube.setBackgroundColor(0xFFFF0000)
-    btnYoutube.setTextColor(0xFFFFFFFF)
-    btnYoutube.setOnClickListener({
-        onClick = function()
-            dialog.dismiss()
-            if mainDlg then mainDlg.dismiss() end
-            local url = "https://youtube.com/@csr-official-f5v?si=nwBIaiiFoI8Ix8k5"
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        end
-    })
-    mainLayout.addView(btnYoutube)
-    addSpacer(mainLayout, dp(5))
-    
-    local btnFeedback = Button(ctx)
-    btnFeedback.setText("Send Feedback by Developer")
-    btnFeedback.setBackgroundColor(0xFFFF9800)
-    btnFeedback.setTextColor(0xFFFFFFFF)
-    btnFeedback.setOnClickListener({
-        onClick = function()
-            dialog.dismiss()
-            if mainDlg then mainDlg.dismiss() end
-            local number = "923057040811"
-            local url = "https://wa.me/" .. number
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        end
-    })
-    mainLayout.addView(btnFeedback)
-    addSpacer(mainLayout, dp(10))
-    
-    local btnGoBack = Button(ctx)
-    btnGoBack.setText("GO BACK")
-    btnGoBack.setBackgroundColor(0xFF9E9E9E)
-    btnGoBack.setTextColor(0xFFFFFFFF)
-    btnGoBack.setOnClickListener({
-        onClick = function()
-            dialog.dismiss()
-        end
-    })
-    mainLayout.addView(btnGoBack)
-    
-    scrollView.addView(mainLayout)
-    dialog.setView(scrollView)
-    dialog.setCancelable(true)
-    dialog.show()
+    runOnUiThread(function()
+        local dialog = LuaDialog(ctx)
+        dialog.setTitle("CSR AI Vision Assistant")
+        
+        local scrollView = ScrollView(ctx)
+        local mainLayout = LinearLayout(ctx)
+        mainLayout.setOrientation(1)
+        mainLayout.setPadding(dp(16), dp(16), dp(16), dp(16))
+        
+        local titleView = TextView(ctx)
+        titleView.setText("CSR AI Vision Assistant")
+        titleView.setTextSize(20)
+        titleView.setTextColor(0xFF2196F3)
+        titleView.setGravity(Gravity.CENTER)
+        titleView.setTypeface(Typeface.DEFAULT_BOLD)
+        mainLayout.addView(titleView)
+        
+        addSpacer(mainLayout, dp(10))
+        
+        local devView = TextView(ctx)
+        devView.setText("Developed by: CSR Official")
+        devView.setTextSize(15)
+        devView.setTextColor(0xFF000000)
+        mainLayout.addView(devView)
+        
+        addSpacer(mainLayout, dp(5))
+        
+        local createdView = TextView(ctx)
+        createdView.setText("Created by: Ch AbdulRafay")
+        createdView.setTextSize(15)
+        createdView.setTextColor(0xFF000000)
+        mainLayout.addView(createdView)
+        
+        addSpacer(mainLayout, dp(20))
+        
+        local descHeading = TextView(ctx)
+        descHeading.setText("Description")
+        descHeading.setTextSize(18)
+        descHeading.setTextColor(0xFF000000)
+        descHeading.setTypeface(Typeface.DEFAULT_BOLD)
+        mainLayout.addView(descHeading)
+        
+        addSpacer(mainLayout, dp(8))
+        
+        local descText = TextView(ctx)
+        descText.setText(
+            "CSR AI Vision Assistant is a powerful Android accessibility tool that leverages Google Gemini AI to help visually impaired users understand their surroundings.\n\n" ..
+            "Features:\n" ..
+            "- Analyze images from gallery with detailed descriptions\n" ..
+            "- Extract text from images accurately\n" ..
+            "- Read current screen content and UI elements\n" ..
+            "- Identify focused items (buttons, icons, text fields)\n" ..
+            "- Support for 17+ languages including Urdu, Hindi, Arabic\n" ..
+            "- Multiple Gemini models (1.5 Pro, 2.0 Flash, 2.5 Pro etc.)\n" ..
+            "- TalkBack integration for voice feedback\n\n" ..
+            "How to use:\n" ..
+            "1. Enable Accessibility Service for this app\n" ..
+            "2. Enter your Gemini API key in Settings\n" ..
+            "3. Choose recognition mode (Image/Screen/Item)\n" ..
+            "4. Select image or focus on any UI element\n" ..
+            "5. Press Process and get AI-powered results\n\n" ..
+            "Tips:\n" ..
+            "- For best results, use clear images\n" ..
+            "- Current Item mode works with screen reader focus\n" ..
+            "- Extract Text Only gives raw OCR-like output\n\n" ..
+            "This assistant is completely free and open for all. No data is stored or shared with any third party besides Google Gemini API."
+        )
+        descText.setTextSize(13)
+        descText.setTextColor(0xFF333333)
+        descText.setPadding(0, 0, 0, dp(10))
+        mainLayout.addView(descText)
+        
+        addSpacer(mainLayout, dp(10))
+        
+        local contactHeading = TextView(ctx)
+        contactHeading.setText("Contact Us")
+        contactHeading.setTextSize(18)
+        contactHeading.setTextColor(0xFF000000)
+        contactHeading.setTypeface(Typeface.DEFAULT_BOLD)
+        mainLayout.addView(contactHeading)
+        
+        addSpacer(mainLayout, dp(10))
+        
+        local btnChannel = Button(ctx)
+        btnChannel.setText("WhatsApp Channel")
+        btnChannel.setBackgroundColor(0xFF25D366)
+        btnChannel.setTextColor(0xFFFFFFFF)
+        btnChannel.setOnClickListener({
+            onClick = function()
+                dialog.dismiss()
+                if mainDlg then mainDlg.dismiss() end
+                local url = "https://whatsapp.com/channel/0029VbCJfWSAojYuaMuB9E1t"
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            end
+        })
+        mainLayout.addView(btnChannel)
+        addSpacer(mainLayout, dp(5))
+        
+        local btnCommunity = Button(ctx)
+        btnCommunity.setText("WhatsApp Community")
+        btnCommunity.setBackgroundColor(0xFF128C7E)
+        btnCommunity.setTextColor(0xFFFFFFFF)
+        btnCommunity.setOnClickListener({
+            onClick = function()
+                dialog.dismiss()
+                if mainDlg then mainDlg.dismiss() end
+                local url = "https://chat.whatsapp.com/C5jA2u0gGDO9rkgcCY2ybg"
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            end
+        })
+        mainLayout.addView(btnCommunity)
+        addSpacer(mainLayout, dp(5))
+        
+        local btnYoutube = Button(ctx)
+        btnYoutube.setText("YouTube Channel")
+        btnYoutube.setBackgroundColor(0xFFFF0000)
+        btnYoutube.setTextColor(0xFFFFFFFF)
+        btnYoutube.setOnClickListener({
+            onClick = function()
+                dialog.dismiss()
+                if mainDlg then mainDlg.dismiss() end
+                local url = "https://youtube.com/@csr-official-f5v?si=nwBIaiiFoI8Ix8k5"
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            end
+        })
+        mainLayout.addView(btnYoutube)
+        addSpacer(mainLayout, dp(5))
+        
+        local btnFeedback = Button(ctx)
+        btnFeedback.setText("Send Feedback by Developer")
+        btnFeedback.setBackgroundColor(0xFFFF9800)
+        btnFeedback.setTextColor(0xFFFFFFFF)
+        btnFeedback.setOnClickListener({
+            onClick = function()
+                dialog.dismiss()
+                if mainDlg then mainDlg.dismiss() end
+                local number = "923057040811"
+                local url = "https://wa.me/" .. number
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            end
+        })
+        mainLayout.addView(btnFeedback)
+        addSpacer(mainLayout, dp(10))
+        
+        local btnGoBack = Button(ctx)
+        btnGoBack.setText("GO BACK")
+        btnGoBack.setBackgroundColor(0xFF9E9E9E)
+        btnGoBack.setTextColor(0xFFFFFFFF)
+        btnGoBack.setOnClickListener({
+            onClick = function()
+                dialog.dismiss()
+            end
+        })
+        mainLayout.addView(btnGoBack)
+        
+        scrollView.addView(mainLayout)
+        dialog.setView(scrollView)
+        dialog.setCancelable(true)
+        dialog.show()
+    end)
 end
 
 function dp(px)
@@ -807,185 +830,189 @@ function addSpacer(layout, height)
 end
 
 function showResultDialog(title, content)
-    local resultDlg = LuaDialog(ctx)
-    resultDlg.setTitle(title)
-    local scrollView = ScrollView(ctx)
-    local textView = TextView(ctx)
-    textView.setText(content)
-    textView.setTextSize(14)
-    textView.setPadding(30, 20, 30, 20)
-    textView.setTextColor(0xFF000000)
-    scrollView.addView(textView)
-    resultDlg.setView(scrollView)
-    resultDlg.setPositiveButton("Close", nil)
-    resultDlg.setNeutralButton("Copy", function()
-        local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
-        clipboard.setText(content)
-        notify("Copied to clipboard")
-        vibrate()
+    runOnUiThread(function()
+        local resultDlg = LuaDialog(ctx)
+        resultDlg.setTitle(title)
+        local scrollView = ScrollView(ctx)
+        local textView = TextView(ctx)
+        textView.setText(content)
+        textView.setTextSize(14)
+        textView.setPadding(30, 20, 30, 20)
+        textView.setTextColor(0xFF000000)
+        scrollView.addView(textView)
+        resultDlg.setView(scrollView)
+        resultDlg.setPositiveButton("Close", nil)
+        resultDlg.setNeutralButton("Copy", function()
+            local clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+            clipboard.setText(content)
+            notify("Copied to clipboard")
+            vibrate()
+        end)
+        resultDlg.show()
     end)
-    resultDlg.show()
 end
 
 function createMainUI()
-    local layout = LinearLayout(ctx)
-    layout.setOrientation(1)
-    layout.setPadding(40, 40, 40, 40)
-    
-    local devLabel = TextView(ctx)
-    devLabel.setText("Developed by CSR Official")
-    devLabel.setGravity(Gravity.CENTER)
-    devLabel.setTextSize(16)
-    devLabel.setTextColor(0xFF2196F3)
-    layout.addView(devLabel)
-    
-    local btnScan = Button(ctx)
-    btnScan.setText("CHOOSE FROM GALLERY")
-    btnScan.onClick = function() scanAllImages() end
-    layout.addView(btnScan)
-    
-    _G.statusLabel = TextView(ctx)
-    _G.statusLabel.setText("No file selected")
-    _G.statusLabel.setPadding(0, 20, 0, 20)
-    _G.statusLabel.setGravity(Gravity.CENTER)
-    layout.addView(_G.statusLabel)
-    
-    local langLabel = TextView(ctx)
-    langLabel.setText("Select Output Language:")
-    langLabel.setTextSize(13)
-    layout.addView(langLabel)
-    
-    local langSpinner = Spinner(ctx)
-    local langAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, POPULAR_LANGUAGES)
-    langSpinner.setAdapter(langAdapter)
-    local savedLang = getSelectedLanguage()
-    for i = 1, #POPULAR_LANGUAGES do
-        if POPULAR_LANGUAGES[i] == savedLang then langSpinner.setSelection(i - 1) end
-    end
-    langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
-        onItemSelected = function(p, v, pos, id) saveSelectedLanguage(POPULAR_LANGUAGES[pos + 1]) end
-    })
-    layout.addView(langSpinner)
-    
-    local recLabel = TextView(ctx)
-    recLabel.setText("Recognition Mode:")
-    recLabel.setTextSize(13)
-    recLabel.setPadding(0, 15, 0, 0)
-    layout.addView(recLabel)
-    
-    local recSpinner = Spinner(ctx)
-    local recAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, RECOGNIZE_OPTIONS)
-    recSpinner.setAdapter(recAdapter)
-    local savedOpt = getSelectedRecognizeOption()
-    for i = 1, #RECOGNIZE_OPTIONS do
-        if RECOGNIZE_OPTIONS[i] == savedOpt then recSpinner.setSelection(i - 1) end
-    end
-    recSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
-        onItemSelected = function(p, v, pos, id) saveSelectedRecognizeOption(RECOGNIZE_OPTIONS[pos + 1]) end
-    })
-    layout.addView(recSpinner)
-    
-    processButton = Button(ctx)
-    processButton.setText("Process")
-    processButton.setBackgroundColor(0xFFFF9800)
-    processButton.onClick = function()
-        processButton.setEnabled(false)
-        processButton.setText("Processing...")
+    runOnUiThread(function()
+        local layout = LinearLayout(ctx)
+        layout.setOrientation(1)
+        layout.setPadding(40, 40, 40, 40)
         
-        local selectedOption = getSelectedRecognizeOption()
-        local lang = getSelectedLanguage()
+        local devLabel = TextView(ctx)
+        devLabel.setText("Developed by CSR Official")
+        devLabel.setGravity(Gravity.CENTER)
+        devLabel.setTextSize(16)
+        devLabel.setTextColor(0xFF2196F3)
+        layout.addView(devLabel)
         
-        if selectedOption == "Current Screen" then
-            if mainDlg then mainDlg.dismiss() mainDlg = nil end
-            local handler = Handler(Looper.getMainLooper())
-            handler.postDelayed(Runnable({ run = function()
-                local result = analyzeCurrentScreen()
-                showResultDialog("Screen Analysis", result)
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-            end }), 100)
-        elseif selectedOption == "Current Item" then
-            if mainDlg then mainDlg.dismiss() mainDlg = nil end
-            local handler = Handler(Looper.getMainLooper())
-            handler.postDelayed(Runnable({ run = function()
-                local result = analyzeCurrentItem()
-                showResultDialog("Item Analysis", result)
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-            end }), 100)
-        elseif selectedOption == "Analyze Image" or selectedOption == "Extract Text Only" then
-            if selectedPhotoPath == "" then
-                notify("Please select an image first")
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-                return
-            end
-            local apiKey = getGeminiApiKey()
-            if not apiKey or apiKey == "" then
-                notify("API Key missing! Set in Settings")
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-                return
-            end
-            
-            showProgress("Processing image with " .. getGeminiModel() .. "...")
-            
-            local base64Data = pathToBase64(selectedPhotoPath)
-            if not base64Data then
-                hideProgress()
-                notify("Failed to process image")
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-                return
-            end
-            
-            local prompt = ""
-            if selectedOption == "Extract Text Only" then
-                prompt = "Extract only the text from this image. Output the text exactly as seen."
-            else
-                prompt = "Analyze this image in detail. Describe what you see, including objects, people, text, colors, and context. Provide the response in " .. lang
-            end
-            
-            callGeminiWithImage(apiKey, getGeminiModel(), base64Data, prompt, function(res, err)
-                hideProgress()
-                if res then
-                    showResultDialog("Analysis Result", res)
-                else
-                    notify("Error: " .. (err or "Unknown"))
-                end
-                processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
-            end)
+        local btnScan = Button(ctx)
+        btnScan.setText("CHOOSE FROM GALLERY")
+        btnScan.onClick = function() scanAllImages() end
+        layout.addView(btnScan)
+        
+        _G.statusLabel = TextView(ctx)
+        _G.statusLabel.setText("No file selected")
+        _G.statusLabel.setPadding(0, 20, 0, 20)
+        _G.statusLabel.setGravity(Gravity.CENTER)
+        layout.addView(_G.statusLabel)
+        
+        local langLabel = TextView(ctx)
+        langLabel.setText("Select Output Language:")
+        langLabel.setTextSize(13)
+        layout.addView(langLabel)
+        
+        local langSpinner = Spinner(ctx)
+        local langAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, POPULAR_LANGUAGES)
+        langSpinner.setAdapter(langAdapter)
+        local savedLang = getSelectedLanguage()
+        for i = 1, #POPULAR_LANGUAGES do
+            if POPULAR_LANGUAGES[i] == savedLang then langSpinner.setSelection(i - 1) end
         end
-    end
-    layout.addView(processButton)
-    
-    local bottomLayout = LinearLayout(ctx)
-    bottomLayout.setOrientation(0)
-    bottomLayout.setLayoutParams(LinearLayout.LayoutParams(-1, -2))
-    bottomLayout.setPadding(0, 20, 0, 0)
-    
-    local btnSettings = Button(ctx)
-    btnSettings.setText("Settings")
-    btnSettings.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
-    btnSettings.onClick = function() showAISettingsDialog() end
-    bottomLayout.addView(btnSettings)
-    
-    local btnAbout = Button(ctx)
-    btnAbout.setText("About & Support")
-    btnAbout.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
-    btnAbout.onClick = function() aboutAndSupport() end
-    bottomLayout.addView(btnAbout)
-    
-    local btnExit = Button(ctx)
-    btnExit.setText("Exit")
-    btnExit.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
-    btnExit.setBackgroundColor(0xFFF44336)
-    btnExit.onClick = function()
-        if mainDlg then mainDlg.dismiss() mainDlg = nil end
-    end
-    bottomLayout.addView(btnExit)
-    
-    layout.addView(bottomLayout)
-    
-    mainDlg = LuaDialog(ctx)
-    mainDlg.setTitle("CSR AI Vision Assistant")
-    mainDlg.setView(layout)
-    mainDlg.show()
+        langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+            onItemSelected = function(p, v, pos, id) saveSelectedLanguage(POPULAR_LANGUAGES[pos + 1]) end
+        })
+        layout.addView(langSpinner)
+        
+        local recLabel = TextView(ctx)
+        recLabel.setText("Recognition Mode:")
+        recLabel.setTextSize(13)
+        recLabel.setPadding(0, 15, 0, 0)
+        layout.addView(recLabel)
+        
+        local recSpinner = Spinner(ctx)
+        local recAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, RECOGNIZE_OPTIONS)
+        recSpinner.setAdapter(recAdapter)
+        local savedOpt = getSelectedRecognizeOption()
+        for i = 1, #RECOGNIZE_OPTIONS do
+            if RECOGNIZE_OPTIONS[i] == savedOpt then recSpinner.setSelection(i - 1) end
+        end
+        recSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener{
+            onItemSelected = function(p, v, pos, id) saveSelectedRecognizeOption(RECOGNIZE_OPTIONS[pos + 1]) end
+        })
+        layout.addView(recSpinner)
+        
+        processButton = Button(ctx)
+        processButton.setText("Process")
+        processButton.setBackgroundColor(0xFFFF9800)
+        processButton.onClick = function()
+            processButton.setEnabled(false)
+            processButton.setText("Processing...")
+            
+            local selectedOption = getSelectedRecognizeOption()
+            local lang = getSelectedLanguage()
+            
+            if selectedOption == "Current Screen" then
+                if mainDlg then mainDlg.dismiss() mainDlg = nil end
+                local handler = Handler(Looper.getMainLooper())
+                handler.postDelayed(Runnable({ run = function()
+                    local result = analyzeCurrentScreen()
+                    showResultDialog("Screen Analysis", result)
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                end }), 100)
+            elseif selectedOption == "Current Item" then
+                if mainDlg then mainDlg.dismiss() mainDlg = nil end
+                local handler = Handler(Looper.getMainLooper())
+                handler.postDelayed(Runnable({ run = function()
+                    local result = analyzeCurrentItem()
+                    showResultDialog("Item Analysis", result)
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                end }), 100)
+            elseif selectedOption == "Analyze Image" or selectedOption == "Extract Text Only" then
+                if selectedPhotoPath == "" then
+                    notify("Please select an image first")
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                    return
+                end
+                local apiKey = getGeminiApiKey()
+                if not apiKey or apiKey == "" then
+                    notify("API Key missing! Set in Settings")
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                    return
+                end
+                
+                showProgress("Processing image with " .. getGeminiModel() .. "...")
+                
+                local base64Data = pathToBase64(selectedPhotoPath)
+                if not base64Data then
+                    hideProgress()
+                    notify("Failed to process image")
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                    return
+                end
+                
+                local prompt = ""
+                if selectedOption == "Extract Text Only" then
+                    prompt = "Extract only the text from this image. Output the text exactly as seen."
+                else
+                    prompt = "Analyze this image in detail. Describe what you see, including objects, people, text, colors, and context. Provide the response in " .. lang
+                end
+                
+                callGeminiWithImage(apiKey, getGeminiModel(), base64Data, prompt, function(res, err)
+                    hideProgress()
+                    if res then
+                        showResultDialog("Analysis Result", res)
+                    else
+                        notify("Error: " .. (err or "Unknown"))
+                    end
+                    processButton.setEnabled(true); processButton.setText("Process"); processButton.setBackgroundColor(0xFFFF9800)
+                end)
+            end
+        end
+        layout.addView(processButton)
+        
+        local bottomLayout = LinearLayout(ctx)
+        bottomLayout.setOrientation(0)
+        bottomLayout.setLayoutParams(LinearLayout.LayoutParams(-1, -2))
+        bottomLayout.setPadding(0, 20, 0, 0)
+        
+        local btnSettings = Button(ctx)
+        btnSettings.setText("Settings")
+        btnSettings.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
+        btnSettings.onClick = function() showAISettingsDialog() end
+        bottomLayout.addView(btnSettings)
+        
+        local btnAbout = Button(ctx)
+        btnAbout.setText("About & Support")
+        btnAbout.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
+        btnAbout.onClick = function() aboutAndSupport() end
+        bottomLayout.addView(btnAbout)
+        
+        local btnExit = Button(ctx)
+        btnExit.setText("Exit")
+        btnExit.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1))
+        btnExit.setBackgroundColor(0xFFF44336)
+        btnExit.onClick = function()
+            if mainDlg then mainDlg.dismiss() mainDlg = nil end
+        end
+        bottomLayout.addView(btnExit)
+        
+        layout.addView(bottomLayout)
+        
+        mainDlg = LuaDialog(ctx)
+        mainDlg.setTitle("CSR AI Vision Assistant")
+        mainDlg.setView(layout)
+        mainDlg.show()
+    end)
 end
 
 -- ==================== STARTUP ====================
